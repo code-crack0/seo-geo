@@ -19,7 +19,6 @@
     "@browserbasehq/stagehand": "^3.1.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@supabase/supabase-js": "^2.49.4",
-    "@tailwindcss/oxide-win32-x64-msvc": "^4.2.1",
     "ai": "^4.3.19",
     "browser-use-sdk": "^3.1.0",
     "class-variance-authority": "^0.7.1",
@@ -29,7 +28,6 @@
     "express": "^4.21.2",
     "framer-motion": "^11.18.2",
     "jsonrepair": "^3.13.2",
-    "lightningcss-win32-x64-msvc": "^1.31.1",
     "lucide-react": "^0.460.0",
     "nanoid": "^5.1.6",
     "next": "16.1.6",
@@ -43,7 +41,6 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
-    "@rollup/rollup-win32-x64-msvc": "^4.59.0",
     "@tailwindcss/postcss": "^4",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.1",
