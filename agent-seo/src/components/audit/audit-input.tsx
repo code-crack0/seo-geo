@@ -29,7 +29,7 @@ export function AuditInput() {
       }
       const data = await res.json() as { auditId?: string };
       if (!data.auditId) throw new Error("No audit ID returned");
-      router.push(`/audit/${data.auditId}`);
+      router.push(`/audit/${data.auditId}?domain=${encodeURIComponent(ensureHttps(domain.trim()))}`);
     } catch (err) {
       console.error("[AuditInput] audit start failed:", err);
       setError("Failed to start audit. Please try again.");
