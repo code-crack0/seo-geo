@@ -1,4 +1,5 @@
 // app/page.tsx
+export const dynamic = "force-dynamic";
 import { AuditInput } from "@/components/audit/audit-input";
 import { Badge } from "@/components/ui/badge";
 import { getRecentAudits as fetchRecentAudits } from "@/lib/db";
