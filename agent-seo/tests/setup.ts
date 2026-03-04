@@ -4,7 +4,7 @@
 // Mock environment variables
 process.env.ANTHROPIC_API_KEY = "test-key";
 process.env.OPENAI_API_KEY = "test-key";
-process.env.NODE_ENV = "test";
+// NODE_ENV is read-only in TypeScript strict mode; it's already "test" in Vitest
 
 // Mock better-sqlite3 so tests don't need a real DB file
 import { vi } from "vitest";
