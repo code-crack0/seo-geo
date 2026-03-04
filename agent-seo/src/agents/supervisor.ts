@@ -44,7 +44,7 @@ export async function runSupervisor(domain: string, auditId: string, dataStream:
     } catch (crawlerErr) {
       log("warn", `[crawler] Failed — continuing with partial data: ${String(crawlerErr)}`);
       emit({ type: "agent_status", agent: "crawler", status: "error", message: `Crawl partial — continuing analysis` });
-      crawlerResult = { pageUrls: [], businessType: "general" };
+      crawlerResult = { pageUrls: [], businessType: "general", sitemapFound: false, robotsTxtFound: false, totalPages: 0, brokenLinks: [], redirectChains: [] };
     }
     emit({ type: "business_type", businessType: crawlerResult.businessType });
     state.crawler = crawlerResult;
