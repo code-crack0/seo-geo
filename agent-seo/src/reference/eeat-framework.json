@@ -1,0 +1,74 @@
+{
+  "version": "September 2025 Quality Rater Guidelines",
+  "dimensions": {
+    "experience": {
+      "weight": 0.2,
+      "signals": [
+        "First-hand usage or testing evidence",
+        "Personal anecdotes or case studies",
+        "Original photos, screenshots, or data",
+        "Specific details only someone with experience would know",
+        "Product comparisons from actual usage"
+      ],
+      "scoring": {
+        "0-20": "No evidence of first-hand experience",
+        "21-40": "Vague claims without supporting evidence",
+        "41-60": "Some experiential details present",
+        "61-80": "Clear first-hand experience demonstrated",
+        "81-100": "Deep, detailed experiential content throughout"
+      }
+    },
+    "expertise": {
+      "weight": 0.3,
+      "signals": [
+        "Author credentials and qualifications",
+        "Technical depth and accuracy",
+        "Proper use of industry terminology",
+        "Cited sources and references",
+        "Comprehensive topic coverage"
+      ],
+      "scoring": {
+        "0-20": "No author info, shallow or inaccurate content",
+        "21-40": "Basic author info, surface-level coverage",
+        "41-60": "Some expertise signals, moderate depth",
+        "61-80": "Clear expertise, good depth and accuracy",
+        "81-100": "Authoritative expert content with citations"
+      }
+    },
+    "authoritativeness": {
+      "weight": 0.25,
+      "signals": [
+        "Domain authority and reputation",
+        "External citations and mentions",
+        "Industry awards or recognition",
+        "Backlink profile quality",
+        "Brand mentions across the web"
+      ],
+      "scoring": {
+        "0-20": "Unknown entity, no external recognition",
+        "21-40": "Minimal external presence",
+        "41-60": "Some industry recognition",
+        "61-80": "Well-known in the space",
+        "81-100": "Go-to authority in the field"
+      }
+    },
+    "trustworthiness": {
+      "weight": 0.25,
+      "signals": [
+        "HTTPS and security indicators",
+        "Clear contact information",
+        "Privacy policy and terms",
+        "Transparent about who they are",
+        "Accurate, honest content (no deception)",
+        "User reviews and testimonials"
+      ],
+      "scoring": {
+        "0-20": "No trust signals, potential deception",
+        "21-40": "Minimal trust signals",
+        "41-60": "Basic trust infrastructure present",
+        "61-80": "Strong trust signals throughout",
+        "81-100": "Exemplary trustworthiness"
+      }
+    }
+  }
+}

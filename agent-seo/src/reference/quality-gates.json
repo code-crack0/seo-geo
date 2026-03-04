@@ -1,0 +1,25 @@
+{
+  "scoring": {
+    "weights": {
+      "technical": 0.25,
+      "content": 0.25,
+      "schema": 0.15,
+      "architecture": 0.15,
+      "geo": 0.20
+    },
+    "thresholds": {
+      "critical": 30,
+      "warning": 50,
+      "good": 70,
+      "excellent": 90
+    }
+  },
+  "gates": {
+    "locationPages": { "warning": 30, "hardStop": 50 },
+    "programmaticPages": { "warning": 100, "hardStop": 500 },
+    "thinContentWords": { "minimum": 300, "recommended": 800 },
+    "duplicateContentThreshold": 0.8,
+    "maxRedirectChain": 3,
+    "maxPageLoadTime": 5000
+  }
+}

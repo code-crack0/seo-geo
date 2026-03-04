@@ -1,0 +1,26 @@
+{
+  "supported": [
+    "Article", "BreadcrumbList", "Carousel", "Course", "Dataset",
+    "EducationalOccupationalCredential", "EmployerAggregateRating",
+    "Event", "FactCheck", "ImageObject", "JobPosting",
+    "LocalBusiness", "MathSolver", "Movie", "Organization",
+    "Product", "ProfilePage", "Recipe", "Review", "SiteNavigationElement",
+    "SoftwareApplication", "WebApplication", "VideoObject",
+    "BroadcastEvent", "Clip", "SeekToAction",
+    "AggregateRating", "Offer", "Service"
+  ],
+  "deprecated": [
+    { "type": "HowTo", "date": "2023-09", "note": "No longer generates rich results" },
+    { "type": "FAQPage", "date": "2023-08", "note": "Restricted to government and healthcare sites only" },
+    { "type": "SpecialAnnouncement", "date": "2025-07", "note": "Fully deprecated" },
+    { "type": "ClaimReview", "date": "2025-06", "note": "Deprecated" },
+    { "type": "VehicleListing", "date": "2025-06", "note": "Deprecated" }
+  ],
+  "typeGuidance": {
+    "saas_browser": "WebApplication (NOT SoftwareApplication)",
+    "mobile_app": "SoftwareApplication",
+    "live_video": "VideoObject + BroadcastEvent",
+    "video_chapters": "VideoObject + Clip + SeekToAction"
+  },
+  "preferredFormat": "JSON-LD"
+}

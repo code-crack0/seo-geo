@@ -1,0 +1,32 @@
+{
+  "saas": {
+    "prioritySchemas": ["WebApplication", "Organization", "Product", "Review", "BreadcrumbList"],
+    "keyPages": ["pricing", "features", "docs", "blog", "about", "contact", "case-studies"],
+    "geoFocus": ["What is [product]?", "Best [category] tools", "[product] vs [competitor]", "[product] alternatives", "[product] pricing"],
+    "contentPriorities": ["Product documentation", "Comparison pages", "Integration guides", "Use case pages", "Thought leadership blog"]
+  },
+  "ecommerce": {
+    "prioritySchemas": ["Product", "Organization", "BreadcrumbList", "Review", "AggregateRating", "Offer"],
+    "keyPages": ["product pages", "category pages", "cart", "about", "shipping", "returns"],
+    "geoFocus": ["Best [product type]", "[product] review", "Where to buy [product]", "[product] comparison"],
+    "contentPriorities": ["Product descriptions", "Buying guides", "Category pages", "Review content", "FAQ pages"]
+  },
+  "local": {
+    "prioritySchemas": ["LocalBusiness", "Organization", "Review", "AggregateRating", "BreadcrumbList", "Service"],
+    "keyPages": ["homepage", "services", "about", "contact", "reviews", "locations"],
+    "geoFocus": ["Best [service] in [city]", "[service] near me", "[business name] reviews"],
+    "contentPriorities": ["Service pages", "Location pages", "Google Business Profile", "Review acquisition", "Local blog content"]
+  },
+  "publisher": {
+    "prioritySchemas": ["Article", "Organization", "BreadcrumbList", "ProfilePage", "SiteNavigationElement"],
+    "keyPages": ["articles", "categories", "authors", "about", "contact"],
+    "geoFocus": ["What is [topic]?", "[topic] explained", "Latest [topic] news"],
+    "contentPriorities": ["Evergreen guides", "News coverage", "Expert analysis", "Data journalism", "Author profile pages"]
+  },
+  "agency": {
+    "prioritySchemas": ["Organization", "Service", "Review", "BreadcrumbList", "ProfilePage"],
+    "keyPages": ["services", "portfolio", "case-studies", "about", "team", "blog", "contact"],
+    "geoFocus": ["Best [service] agency", "Top [service] companies", "[service] agency near me"],
+    "contentPriorities": ["Case studies", "Service pages", "Thought leadership", "Industry reports", "Team expertise pages"]
+  }
+}

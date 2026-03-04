@@ -1,0 +1,71 @@
+{
+  "framework": "CITE",
+  "version": "2026",
+  "description": "Framework for optimizing content to be cited by AI search engines",
+  "dimensions": {
+    "clarity": {
+      "weight": 0.3,
+      "checks": [
+        "Direct answer in first 100 words",
+        "Clear, quotable definitions for key terms",
+        "Concise sentences under 20 words for key claims",
+        "Unambiguous language (no hedging on facts)",
+        "Structured H2/H3 hierarchy matching common queries"
+      ]
+    },
+    "intent": {
+      "weight": 0.2,
+      "checks": [
+        "Content matches informational query intent",
+        "Covers 'People Also Ask' style sub-questions",
+        "FAQ section with direct Q&A format",
+        "Addresses comparison queries (X vs Y)",
+        "Includes 'how to' and 'what is' formulations"
+      ]
+    },
+    "trust": {
+      "weight": 0.25,
+      "checks": [
+        "Links to authoritative external sources",
+        "Author expertise clearly established",
+        "Publication date visible and recent",
+        "Schema markup present (Organization, Article, Author)",
+        "Domain has established authority"
+      ]
+    },
+    "evidence": {
+      "weight": 0.25,
+      "checks": [
+        "Specific statistics with cited sources",
+        "Original data, surveys, or research",
+        "Expert quotes with attribution",
+        "Case studies or real-world examples",
+        "Comparative data (tables, charts described in text)"
+      ]
+    }
+  },
+  "aiEngines": [
+    {
+      "name": "Google AI Overviews",
+      "queryPattern": "Search Google for '[query]' and check AI Overview",
+      "citationStyle": "Sources shown as links below the overview"
+    },
+    {
+      "name": "Perplexity",
+      "queryPattern": "Search Perplexity for '[query]'",
+      "citationStyle": "Inline numbered citations [1][2][3]"
+    },
+    {
+      "name": "ChatGPT Search",
+      "queryPattern": "Ask ChatGPT with web search: '[query]'",
+      "citationStyle": "Sources listed at bottom of response"
+    }
+  ],
+  "scoringGuide": {
+    "0-20": "Invisible — not mentioned in any AI engine responses",
+    "21-40": "Barely visible — occasional mention without citation",
+    "41-60": "Emerging — cited in some queries, inconsistent",
+    "61-80": "Visible — regularly cited with positive framing",
+    "81-100": "Authority — primary cited source across AI engines"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "lcp": {
+    "good": 2500,
+    "needsImprovement": 4000,
+    "unit": "ms",
+    "label": "Largest Contentful Paint",
+    "description": "Measures loading performance. Should occur within 2.5s of page load."
+  },
+  "inp": {
+    "good": 200,
+    "needsImprovement": 500,
+    "unit": "ms",
+    "label": "Interaction to Next Paint",
+    "description": "Measures interactivity. Replaced FID on March 12, 2024."
+  },
+  "cls": {
+    "good": 0.1,
+    "needsImprovement": 0.25,
+    "unit": "score",
+    "label": "Cumulative Layout Shift",
+    "description": "Measures visual stability. Should be under 0.1."
+  }
+}
