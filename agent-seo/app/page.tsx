@@ -17,7 +17,11 @@ const AGENTS = [
 const FEATURES = ["Technical SEO", "E-E-A-T Analysis", "Schema Validation", "AI Visibility (GEO)"];
 
 async function getRecentAudits() {
-  return fetchRecentAudits(5);
+  try {
+    return await fetchRecentAudits(5);
+  } catch {
+    return [];
+  }
 }
 
 function timeAgo(date: Date): string {
