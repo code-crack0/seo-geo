@@ -7,7 +7,7 @@ export interface AuditInput {
 }
 
 // === BUSINESS TYPE ===
-export type BusinessType = "saas" | "ecommerce" | "local" | "publisher" | "agency";
+export type BusinessType = "saas" | "ecommerce" | "local" | "publisher" | "agency" | "general";
 
 // === CRAWLER OUTPUT ===
 // Raw page HTML is stored in SQLite (crawled_pages table); agents query it directly.

@@ -112,7 +112,7 @@ IMPORTANT: Use captureAndStore (NOT extractPageData) after each navigation. Do N
 
   // ── Step 3: Infer businessType using generateObject ───────────────────────
   const MetaSchema = z.object({
-    businessType: z.enum(["saas", "ecommerce", "local", "publisher", "agency"]),
+    businessType: z.enum(["saas", "ecommerce", "local", "publisher", "agency", "general"]),
   });
 
   let businessType: CrawlerResult["businessType"] = "general" as CrawlerResult["businessType"];
