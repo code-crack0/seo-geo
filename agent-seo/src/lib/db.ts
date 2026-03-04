@@ -118,6 +118,21 @@ export async function getPageByUrl(
   return data ?? null;
 }
 
+// ── Audit events (persisted stream for reconnection) ──────────────────────────
+
+export async function storeAuditEvent(auditId: string, event: Record<string, unknown>): Promise<void> {
+  await supabase.from("audit_events").insert({ audit_id: auditId, event });
+}
+
+export async function getAuditEvents(auditId: string): Promise<Record<string, unknown>[]> {
+  const { data } = await supabase
+    .from("audit_events")
+    .select("event")
+    .eq("audit_id", auditId)
+    .order("id", { ascending: true });
+  return (data ?? []).map((row) => row.event as Record<string, unknown>);
+}
+
 // ── Chunk embeddings ──────────────────────────────────────────────────────────
 
 export interface StoredChunk {
