@@ -9,6 +9,7 @@ import { runStrategistAgent } from "./strategist";
 import { updateAuditComplete, updateAuditFailed } from "@/lib/db";
 import type { AuditState } from "@/lib/types";
 import { initBrowser, getMainPage, getNewBrowserPage, closeBrowser } from "@/lib/browserbase";
+import type { Page } from "playwright";
 
 export async function runSupervisor(domain: string, auditId: string, dataStream: DataStreamWriter): Promise<void> {
   const state: Partial<AuditState> = { auditId, domain, status: "crawling" };
@@ -27,7 +28,7 @@ export async function runSupervisor(domain: string, auditId: string, dataStream:
   try {
     // ── Initialize Browser-Use Cloud session ─────────────────────────────────
     log("info", "[supervisor] Initializing Browser-Use cloud session...");
-    const session = await initBrowser();
+    const session = await initBrowser(auditId);
     emit({ type: "browser_session", sessionId: session.sessionId, liveUrl: session.liveUrl });
     log("info", `[supervisor] Session ready → ${session.liveUrl}`);
 
@@ -35,7 +36,7 @@ export async function runSupervisor(domain: string, auditId: string, dataStream:
     emit({ type: "agent_status", agent: "crawler", status: "running", message: "Starting site crawl..." });
     log("info", `[crawler] Beginning crawl of ${domain}`);
 
-    const crawlerPage = getMainPage();
+    const crawlerPage = getMainPage(auditId);
     let crawlerResult: Awaited<ReturnType<typeof runCrawlerAgent>>;
     try {
       crawlerResult = await runCrawlerAgent(domain, auditId, dataStream, crawlerPage);
@@ -57,23 +58,32 @@ export async function runSupervisor(domain: string, auditId: string, dataStream:
     emit({ type: "agent_status", agent: "schema", status: "running", message: "Validating structured data..." });
     emit({ type: "agent_status", agent: "geo", status: "running", message: "Checking AI engine visibility..." });
 
-    // Technical agent needs a browser page for live CWV measurement; others query SQLite
-    const [technicalPage, geoPage] = await Promise.all([
-      getNewBrowserPage(),
-      getNewBrowserPage(),
-    ]);
+    // Technical agent needs a browser page for live CWV measurement; GEO needs one for searches.
+    // Both are optional — if the browser session dropped, those agents degrade gracefully.
+    let technicalPage: Page | null = null;
+    let geoPage: Page | null = null;
+    try {
+      [technicalPage, geoPage] = await Promise.all([
+        getNewBrowserPage(auditId),
+        getNewBrowserPage(auditId),
+      ]);
+    } catch (pageErr) {
+      log("warn", `[supervisor] Browser unavailable for analysis agents — running in degraded mode: ${String(pageErr)}`);
+    }
 
     const [technical, content, schema, geo] = await Promise.allSettled([
-      runTechnicalAgent(crawlerResult, auditId, dataStream, technicalPage),
+      technicalPage
+        ? runTechnicalAgent(crawlerResult, auditId, dataStream, technicalPage)
+        : Promise.reject(new Error("Browser session unavailable")),
       runContentAgent(auditId, crawlerResult.businessType),
       runSchemaAgent(auditId, crawlerResult.businessType),
-      runGEOAgent(domain, crawlerResult.businessType, dataStream, geoPage),
+      geoPage
+        ? runGEOAgent(domain, crawlerResult.businessType, dataStream, geoPage)
+        : Promise.reject(new Error("Browser session unavailable")),
     ]);
 
-    await Promise.all([
-      technicalPage.close().catch(() => {}),
-      geoPage.close().catch(() => {}),
-    ]);
+    if (technicalPage) await technicalPage.close().catch(() => {});
+    if (geoPage) await geoPage.close().catch(() => {});
 
     if (technical.status === "fulfilled") {
       state.technical = technical.value;
@@ -167,7 +177,7 @@ export async function runSupervisor(domain: string, auditId: string, dataStream:
     try { emit({ type: "log", level: "error", message: `[supervisor] Fatal error: ${String(error)}` }); } catch { /* stream closed */ }
     try { await updateAuditFailed(auditId); } catch { /* ignore */ }
   } finally {
-    await closeBrowser();
+    await closeBrowser(auditId);
     try { log("info", "[supervisor] Browser-Use session closed."); } catch { /* */ }
   }
 }
