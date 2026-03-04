@@ -8,8 +8,9 @@ import { embedRouter } from "./routes/embed";
 
 const app = express();
 
+// FRONTEND_URL can be comma-separated for multiple origins
 const allowedOrigins = process.env.FRONTEND_URL
-  ? [process.env.FRONTEND_URL]
+  ? process.env.FRONTEND_URL.split(",").map((o) => o.trim())
   : ["http://localhost:3000"];
 
 app.use(
