@@ -1,6 +1,7 @@
 // src/components/audit/audit-dashboard.tsx
 "use client";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAuditStore } from "@/stores/audit-store";
 import { AgentTimeline } from "./agent-timeline";
 import { LiveBrowser } from "./live-browser";
@@ -65,6 +66,19 @@ export function AuditDashboard({
 
   const isLive = status === "running";
   const currentAgent = Object.entries(agents).find(([, v]) => v.status === "running")?.[0];
+  const router = useRouter();
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDelete() {
+    if (!confirm("Delete this audit and all associated data?")) return;
+    setDeleting(true);
+    try {
+      await fetch(`/api/audit/${auditId}`, { method: "DELETE" });
+      router.push("/");
+    } catch {
+      setDeleting(false);
+    }
+  }
 
   useEffect(() => {
     if (!auditId || !domain) return;
@@ -157,7 +171,16 @@ export function AuditDashboard({
           {displayDomain && <span className="text-[var(--text-secondary)] font-medium truncate max-w-[160px] sm:max-w-xs">{displayDomain}</span>}
           {businessType && <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]">{businessType}</span>}
         </div>
-        <Link href="/" className="text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">+ New Audit</Link>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            className="text-sm text-[var(--text-tertiary)] hover:text-red-400 transition-colors disabled:opacity-40"
+          >
+            {deleting ? "Deleting…" : "Delete Audit"}
+          </button>
+          <Link href="/" className="text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">+ New Audit</Link>
+        </div>
       </header>
 
       <div className="flex-1 flex flex-col lg:grid lg:grid-cols-[280px_1fr_380px] overflow-hidden">

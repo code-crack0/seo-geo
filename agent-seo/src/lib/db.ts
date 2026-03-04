@@ -53,6 +53,12 @@ export async function updateAuditComplete(
   if (error) throw new Error(`updateAuditComplete: ${error.message}`);
 }
 
+export async function deleteAudit(id: string): Promise<void> {
+  // ON DELETE CASCADE handles crawled_pages, chunk_embeddings, audit_events
+  const { error } = await supabase.from("audits").delete().eq("id", id);
+  if (error) throw new Error(`deleteAudit: ${error.message}`);
+}
+
 export async function updateAuditFailed(id: string): Promise<void> {
   await supabase.from("audits").update({ status: "failed" }).eq("id", id);
 }

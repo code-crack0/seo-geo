@@ -1,12 +1,11 @@
 // src/agents/crawler.ts
-import { generateText, tool } from "ai";
+import { generateText, generateObject, tool } from "ai";
 import { defaultModel } from "@/lib/ai";
 import fs from "fs";
 import path from "path";
 import { z } from "zod";
 import type { CrawlerResult } from "@/lib/types";
 import { createPlaywrightTools } from "@/tools/playwright";
-import { extractJsonFromResult } from "@/lib/parse-agent-result";
 import { withRetry } from "@/lib/retry";
 import { storePageHtml } from "@/lib/db";
 import { type Page } from "playwright";
@@ -16,8 +15,6 @@ const systemPrompt = fs.readFileSync(path.join(process.cwd(), "src/agents/prompt
 export async function runCrawlerAgent(domain: string, auditId: string, dataStream: any, page: Page): Promise<CrawlerResult> {
   const tools = createPlaywrightTools(dataStream, page);
 
-  // captureAndStore: saves the current page's full HTML to SQLite and returns
-  // only compact metadata so the LLM context stays small.
   const captureAndStore = tool({
     description:
       "Capture the current page's HTML, store it to the database, and return key metadata " +
@@ -39,16 +36,14 @@ export async function runCrawlerAgent(domain: string, auditId: string, dataStrea
 
       const capped = html.length > 500_000 ? html.slice(0, 500_000) : html;
 
-      // Capture a viewport screenshot for vision-based content analysis
       let screenshotB64: string | null = null;
       try {
         const buf = await page.screenshot({ type: "jpeg", quality: 50 });
         screenshotB64 = buf.toString("base64");
-      } catch { /* swallow — screenshot is optional */ }
+      } catch { /* screenshot is optional */ }
 
       await storePageHtml(auditId, url, capped, screenshotB64);
 
-      // Extract minimal metadata for LLM crawl tracking
       const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.replace(/<[^>]+>/g, "").trim() ?? "";
       const textOnly = html.replace(/<[^>]+>/g, " ");
       const wordCount = textOnly.split(/\s+/).filter(Boolean).length;
@@ -63,6 +58,7 @@ export async function runCrawlerAgent(domain: string, auditId: string, dataStrea
     },
   });
 
+  // ── Step 1: Tool-calling phase — crawl the site ───────────────────────────
   const result = await withRetry(() =>
     generateText({
       model: defaultModel,
@@ -75,13 +71,9 @@ Steps:
 3. If no sitemapUrl from robots.txt, try checkSitemap with https://${domain}/sitemap.xml
 4. For each new URL discovered: navigateTo then immediately captureAndStore
 5. Crawl up to 15 UNIQUE pages — never revisit a URL you already navigated to
-6. Once you have 15 pages OR run out of new URLs, STOP and output the JSON immediately
+6. Once you have 15 pages OR run out of new URLs, STOP.
 
-IMPORTANT: Use captureAndStore (NOT extractPageData) after each navigation.
-
-Return a JSON object:
-{ pageUrls: string[], businessType, sitemapFound, robotsTxtFound, totalPages, brokenLinks, redirectChains }
-Where pageUrls is the list of all URLs successfully captured and stored.`,
+IMPORTANT: Use captureAndStore (NOT extractPageData) after each navigation. Do NOT output JSON.`,
       tools: {
         navigateTo: tools.navigateTo,
         captureAndStore,
@@ -93,5 +85,59 @@ Where pageUrls is the list of all URLs successfully captured and stored.`,
     })
   );
 
-  return JSON.parse(extractJsonFromResult(result)) as CrawlerResult;
+  // ── Step 2: Extract data from tool call results ───────────────────────────
+  const pageUrls: string[] = [];
+  let sitemapFound = false;
+  let robotsTxtFound = false;
+  const brokenLinks: string[] = [];
+  const redirectChains: { from: string; to: string; hops: number }[] = [];
+  const pageTitles: string[] = [];
+
+  for (const step of result.steps) {
+    for (const tr of (step.toolResults ?? [])) {
+      const r = tr as { toolName: string; result: Record<string, unknown> };
+      if (r.toolName === "captureAndStore" && r.result.stored && r.result.url) {
+        const url = String(r.result.url);
+        if (!pageUrls.includes(url)) {
+          pageUrls.push(url);
+          if (r.result.title) pageTitles.push(String(r.result.title));
+        }
+      }
+      if (r.toolName === "checkRobotsTxt") robotsTxtFound = true;
+      if (r.toolName === "checkSitemap" && Array.isArray(r.result.urls) && r.result.urls.length > 0) {
+        sitemapFound = true;
+      }
+    }
+  }
+
+  // ── Step 3: Infer businessType using generateObject ───────────────────────
+  const MetaSchema = z.object({
+    businessType: z.enum(["saas", "ecommerce", "local", "publisher", "agency"]),
+  });
+
+  let businessType: CrawlerResult["businessType"] = "general" as CrawlerResult["businessType"];
+  try {
+    const { object: meta } = await withRetry(() =>
+      generateObject({
+        model: defaultModel,
+        schema: MetaSchema,
+        messages: [{
+          role: "user",
+          content: `Domain: ${domain}\nCrawled page titles: ${pageTitles.slice(0, 8).join(" | ")}\nURLs: ${pageUrls.slice(0, 8).join(", ")}\n\nClassify this website's business type.`,
+        }],
+        maxTokens: 200,
+      })
+    );
+    businessType = meta.businessType;
+  } catch { /* use default */ }
+
+  return {
+    pageUrls,
+    businessType,
+    sitemapFound,
+    robotsTxtFound,
+    totalPages: pageUrls.length,
+    brokenLinks,
+    redirectChains,
+  };
 }
