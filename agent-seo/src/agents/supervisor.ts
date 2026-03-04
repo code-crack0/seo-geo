@@ -16,6 +16,11 @@ export async function runSupervisor(domain: string, auditId: string, dataStream:
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const emit = (event: Record<string, any>) => dataStream.writeData(event as JSONValue);
   const log = (level: "info" | "warn" | "error", message: string) => {
+    // Console output captured by Railway logs
+    const ts = new Date().toISOString();
+    if (level === "error") console.error(`[${ts}] [${auditId}] ${message}`);
+    else if (level === "warn") console.warn(`[${ts}] [${auditId}] ${message}`);
+    else console.log(`[${ts}] [${auditId}] ${message}`);
     try { emit({ type: "log", level, message }); } catch { /* stream closed */ }
   };
 
@@ -31,11 +36,17 @@ export async function runSupervisor(domain: string, auditId: string, dataStream:
     log("info", `[crawler] Beginning crawl of ${domain}`);
 
     const crawlerPage = getMainPage();
-    const crawlerResult = await runCrawlerAgent(domain, auditId, dataStream, crawlerPage);
-
-    emit({ type: "agent_status", agent: "crawler", status: "done", message: `${crawlerResult.pageUrls.length} pages crawled` });
+    let crawlerResult: Awaited<ReturnType<typeof runCrawlerAgent>>;
+    try {
+      crawlerResult = await runCrawlerAgent(domain, auditId, dataStream, crawlerPage);
+      emit({ type: "agent_status", agent: "crawler", status: "done", message: `${crawlerResult.pageUrls.length} pages crawled` });
+      log("info", `[crawler] Done — ${crawlerResult.pageUrls.length} pages, type: ${crawlerResult.businessType}`);
+    } catch (crawlerErr) {
+      log("warn", `[crawler] Failed — continuing with partial data: ${String(crawlerErr)}`);
+      emit({ type: "agent_status", agent: "crawler", status: "error", message: `Crawl partial — continuing analysis` });
+      crawlerResult = { pageUrls: [], businessType: "general" };
+    }
     emit({ type: "business_type", businessType: crawlerResult.businessType });
-    log("info", `[crawler] Done — ${crawlerResult.pageUrls.length} pages, type: ${crawlerResult.businessType}`);
     state.crawler = crawlerResult;
     state.businessType = crawlerResult.businessType;
 
