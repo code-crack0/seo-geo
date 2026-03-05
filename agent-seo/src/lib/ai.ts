@@ -1,10 +1,10 @@
 // src/lib/ai.ts
-import { createAnthropic } from "@ai-sdk/anthropic";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 
-const apiKey = process.env.ANTHROPIC_API_KEY;
+const apiKey = process.env.GEMINI_API_KEY;
 if (!apiKey) {
-  throw new Error("ANTHROPIC_API_KEY environment variable is not set");
+  throw new Error("GEMINI_API_KEY environment variable is not set");
 }
 
-export const anthropic = createAnthropic({ apiKey });
-export const defaultModel = anthropic("claude-sonnet-4-6");
+export const google = createGoogleGenerativeAI({ apiKey });
+export const defaultModel = google("gemini-2.5-pro");

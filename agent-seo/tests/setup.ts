@@ -2,7 +2,7 @@
 // Vitest global setup
 
 // Mock environment variables
-process.env.ANTHROPIC_API_KEY = "test-key";
+process.env.GEMINI_API_KEY = "test-key";
 process.env.OPENAI_API_KEY = "test-key";
 // NODE_ENV is read-only in TypeScript strict mode; it's already "test" in Vitest
 

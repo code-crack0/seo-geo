@@ -1,6 +1,6 @@
 // tests/e2e/real-audit.spec.ts
 // Tests the POST /api/audit pipeline with a real domain (no mocking).
-// Requires a valid ANTHROPIC_API_KEY in .env.local for AI agents to succeed.
+// Requires a valid GEMINI_API_KEY in .env.local for AI agents to succeed.
 import { test, expect } from "@playwright/test";
 
 const TEST_DOMAIN = "https://example.com";

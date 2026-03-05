@@ -48,7 +48,7 @@ vi.mock("@/lib/embeddings", () => ({
 }));
 
 vi.mock("@/lib/ai", () => ({
-  defaultModel: { modelId: "claude-sonnet-4-6" },
+  defaultModel: { modelId: "gemini-2.5-pro" },
 }));
 
 // ── Import route after mocks ─────────────────────────────────────────────
@@ -93,7 +93,7 @@ describe("POST /api/chat", () => {
     await POST(req);
 
     const callArgs = (streamTextMock.mock.calls as unknown as unknown[][])[0]![0] as Record<string, unknown>;
-    expect(callArgs.model).toEqual({ modelId: "claude-sonnet-4-6" });
+    expect(callArgs.model).toEqual({ modelId: "gemini-2.5-pro" });
   });
 
   it("fetches audit context from DB when auditId is provided", async () => {

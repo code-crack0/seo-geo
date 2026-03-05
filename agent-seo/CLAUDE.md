@@ -10,7 +10,7 @@ AgentSEO is a multi-agent SEO/GEO audit web app built with Next.js 16 + React 19
 
 - **Framework:** Next.js 16 (App Router), React 19
 - **Browser automation:** Browser-Use Cloud (`browser-use-sdk`) + Playwright over CDP
-- **AI:** Vercel AI SDK v4 (`ai`), `@ai-sdk/anthropic`, `@ai-sdk/openai` (embeddings)
+- **AI:** Vercel AI SDK v4 (`ai`), `@ai-sdk/google` (Gemini 2.5 Pro), `@ai-sdk/openai` (embeddings)
 - **State:** Zustand v5
 - **DB:** Supabase PostgreSQL via `@supabase/supabase-js` (replaces better-sqlite3 + Drizzle)
 - **Styling:** Tailwind CSS v4, Framer Motion, Lucide icons, `react-markdown`
@@ -28,7 +28,7 @@ agent-seo/
 │   ├── lib/
 │   │   ├── browserbase.ts   # Browser-Use Cloud session + Playwright CDP attachment
 │   │   ├── types.ts         # All shared TypeScript types and stream event union
-│   │   ├── ai.ts            # Anthropic client setup
+│   │   ├── ai.ts            # Gemini client setup (google, defaultModel)
 │   │   ├── supabase.ts      # Supabase client (service role, server-side only)
 │   │   ├── db.ts            # Supabase-backed DB helpers (async, replaces SQLite/Drizzle)
 │   │   └── embeddings.ts    # RAG: buildChunks (async), embedAndStore, searchChunks
@@ -56,7 +56,7 @@ agent-seo/
 │   └── plans/               # Implementation plans (YYYY-MM-DD-*.md)
 ├── .env.example             # All required environment variables documented
 ├── railway.toml             # Railway deployment config (runs npm run server)
-├── .env.local               # ANTHROPIC_API_KEY, BROWSERUSE_API_KEY, OPENAI_API_KEY, etc.
+├── .env.local               # GEMINI_API_KEY, BROWSERUSE_API_KEY, OPENAI_API_KEY, etc.
 └── package.json
 ```
 
@@ -182,7 +182,7 @@ The `triggered` ref prevents React StrictMode double-invocation.
 ## Environment Variables
 
 ```env
-ANTHROPIC_API_KEY=...
+GEMINI_API_KEY=...
 BROWSERUSE_API_KEY=...
 OPENAI_API_KEY=...       # Used for text-embedding-3-small (chat RAG)
 APP_URL=http://localhost:3000  # Server-side base URL for supervisor → /api/embed trigger
