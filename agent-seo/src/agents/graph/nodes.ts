@@ -7,7 +7,6 @@
 import type { RunnableConfig } from "@langchain/core/runnables";
 import type { DataStreamWriter, JSONValue } from "ai";
 
-import { AuditGraphState } from "./state";
 import type { AuditGraphStateType } from "./state";
 
 import { initBrowser, getMainPage, getNewBrowserPage } from "@/lib/browserbase";
@@ -86,6 +85,7 @@ export const crawlNode: Node = async (state, config) => {
     );
 
     emit({ type: "agent_status", agent: "crawler", status: "done" });
+    emit({ type: "business_type", businessType: crawlerResult.businessType });
     log("info", `Crawler done — ${crawlerResult.pageUrls.length} pages found`);
 
     return { crawler: crawlerResult, status: "analyzing" };
@@ -119,18 +119,23 @@ export const technicalNode: Node = async (state, config) => {
   emit({ type: "agent_status", agent: "technical", status: "running" });
   log("info", "Technical agent starting…");
 
+  if (!state.crawler) {
+    emit({ type: "agent_status", agent: "technical", status: "error", message: "Crawler result unavailable" });
+    return { agentErrors: [{ agent: "technical", error: "Crawler result unavailable" }] };
+  }
+
   let page;
   try {
     page = await getNewBrowserPage(state.auditId);
     const result = await runTechnicalAgent(
-      state.crawler!,
+      state.crawler,
       state.auditId,
       dataStream,
       page,
     );
 
-    emit({ type: "score_update", agent: "technical", score: result.score });
-    emit({ type: "partial_result", agent: "technical", result });
+    emit({ type: "score_update", category: "technical", score: result.score });
+    emit({ type: "partial_result", agent: "technical", data: result });
     emit({ type: "agent_status", agent: "technical", status: "done" });
     log("info", `Technical agent done — score: ${result.score}`);
 
@@ -159,8 +164,8 @@ export const contentNode: Node = async (state, config) => {
       state.crawler?.businessType ?? "general",
     );
 
-    emit({ type: "score_update", agent: "content", score: result.score });
-    emit({ type: "partial_result", agent: "content", result });
+    emit({ type: "score_update", category: "content", score: result.score });
+    emit({ type: "partial_result", agent: "content", data: result });
     emit({ type: "agent_status", agent: "content", status: "done" });
     log("info", `Content agent done — score: ${result.score}`);
 
@@ -187,8 +192,8 @@ export const schemaNode: Node = async (state, config) => {
       state.crawler?.businessType ?? "general",
     );
 
-    emit({ type: "score_update", agent: "schema", score: result.score });
-    emit({ type: "partial_result", agent: "schema", result });
+    emit({ type: "score_update", category: "schema", score: result.score });
+    emit({ type: "partial_result", agent: "schema", data: result });
     emit({ type: "agent_status", agent: "schema", status: "done" });
     log("info", `Schema agent done — score: ${result.score}`);
 
@@ -220,8 +225,8 @@ export const geoNode: Node = async (state, config) => {
       page,
     );
 
-    emit({ type: "score_update", agent: "geo", score: result.aiVisibilityScore });
-    emit({ type: "partial_result", agent: "geo", result });
+    emit({ type: "score_update", category: "geo", score: result.aiVisibilityScore });
+    emit({ type: "partial_result", agent: "geo", data: result });
     emit({ type: "agent_status", agent: "geo", status: "done" });
     log("info", `GEO agent done — score: ${result.aiVisibilityScore}`);
 
@@ -244,19 +249,26 @@ export const synthesizeNode: Node = async (state, config) => {
   emit({ type: "agent_status", agent: "strategist", status: "running" });
   log("info", "Strategist agent starting…");
 
-  const strategy = await runStrategistAgent({
-    crawler: state.crawler!,
-    technical: state.technical,
-    content: state.content,
-    schema: state.schema,
-    geo: state.geo,
-    businessType: state.crawler?.businessType ?? "general",
-  });
+  try {
+    const strategy = await runStrategistAgent({
+      crawler: state.crawler!,
+      technical: state.technical,
+      content: state.content,
+      schema: state.schema,
+      geo: state.geo,
+      businessType: state.crawler?.businessType ?? "general",
+    });
 
-  emit({ type: "agent_status", agent: "strategist", status: "done" });
-  log("info", `Strategist done — overall score: ${strategy.overallScore}`);
+    emit({ type: "score_update", category: "overall", score: strategy.overallScore });
+    emit({ type: "agent_status", agent: "strategist", status: "done" });
+    log("info", `Strategist done — overall score: ${strategy.overallScore}`);
 
-  return { strategy, status: "synthesizing" };
+    return { strategy, status: "completed" };
+  } catch (err) {
+    log("error", `Strategist agent failed: ${String(err)}`);
+    emit({ type: "agent_status", agent: "strategist", status: "error", message: String(err) });
+    return { agentErrors: [{ agent: "strategist", error: String(err) }] };
+  }
 };
 
 // ── 8. saveNode ───────────────────────────────────────────────────────────────
@@ -305,7 +317,8 @@ export const handleErrorNode: Node = async (state, config) => {
   const log = getLog(config, state.auditId);
 
   log("error", "Audit pipeline encountered a fatal error");
-  emit({ type: "agent_status", agent: "pipeline", status: "error" });
+  const errorSummary = state.agentErrors?.map(e => `${e.agent}: ${e.error}`).join("; ") ?? "Unknown error";
+  emit({ type: "agent_status", agent: "pipeline", status: "error", message: errorSummary });
 
   try {
     await updateAuditFailed(state.auditId);
