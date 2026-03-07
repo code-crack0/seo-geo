@@ -92,6 +92,11 @@ const graph = new StateGraph(AuditGraphState)
   .addEdge("synthesize", "save")
   .addEdge("save", END)
 
+  /**
+   * handleErrorNode is a terminal sink wired to END. It is not automatically
+   * routed to by LangGraph — future conditional edges can route to 'handleError'
+   * for explicit error handling paths.
+   */
   // Standalone error sink
   .addEdge("handleError", END);
 

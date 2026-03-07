@@ -267,7 +267,8 @@ export const synthesizeNode: Node = async (state, config) => {
   } catch (err) {
     log("error", `Strategist agent failed: ${String(err)}`);
     emit({ type: "agent_status", agent: "strategist", status: "error", message: String(err) });
-    return { agentErrors: [{ agent: "strategist", error: String(err) }] };
+    await updateAuditFailed(state.auditId).catch(() => {});
+    return { status: "failed", agentErrors: [{ agent: "strategist", error: String(err) }] };
   }
 };
 
