@@ -6,8 +6,10 @@ export const getTechnicalIssuesSkill = (auditId: string) =>
   tool(
     async ({ severity }) => {
       const audit = await getAuditById(auditId);
-      const results = audit?.results as Record<string, unknown> | null;
-      const issues = (results?.technical as { issues?: unknown[] })?.issues ?? [];
+      if (!audit) return "Audit not found.";
+      const results = audit.results as Record<string, unknown> | null;
+      if (!results || results.technical === undefined) return "No technical data available for this audit.";
+      const issues = (results.technical as { issues?: unknown[] })?.issues ?? [];
       const filtered = severity
         ? issues.filter((i) => (i as { severity: string }).severity === severity)
         : issues;
