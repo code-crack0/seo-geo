@@ -1,5 +1,13 @@
 import { Annotation, type StateType } from "@langchain/langgraph";
 import type { DataStreamWriter } from "ai";
+import type {
+  CrawlerResult,
+  TechnicalResult,
+  ContentResult,
+  SchemaResult,
+  GEOResult,
+  StrategyResult,
+} from "@/lib/types";
 
 /**
  * Non-serializable runtime values passed via graph config (not stored in state).
@@ -17,7 +25,15 @@ export interface AuditGraphConfig {
  * so concurrent updates are concatenated rather than overwritten.
  */
 export const AuditGraphState = Annotation.Root({
+  /**
+   * Required at invocation time — no default by design.
+   * Must be provided when invoking the graph (e.g. graph.invoke({ auditId, domain })).
+   */
   auditId: Annotation<string>,
+  /**
+   * Required at invocation time — no default by design.
+   * Must be provided when invoking the graph (e.g. graph.invoke({ auditId, domain })).
+   */
   domain: Annotation<string>,
   status: Annotation<
     "crawling" | "analyzing" | "synthesizing" | "completed" | "failed"
@@ -33,27 +49,27 @@ export const AuditGraphState = Annotation.Root({
     default: () => undefined,
     reducer: (_, next) => next,
   }),
-  crawler: Annotation<unknown | undefined>({
+  crawler: Annotation<CrawlerResult | undefined>({
     default: () => undefined,
     reducer: (_, next) => next,
   }),
-  technical: Annotation<unknown | undefined>({
+  technical: Annotation<TechnicalResult | undefined>({
     default: () => undefined,
     reducer: (_, next) => next,
   }),
-  content: Annotation<unknown | undefined>({
+  content: Annotation<ContentResult | undefined>({
     default: () => undefined,
     reducer: (_, next) => next,
   }),
-  schema: Annotation<unknown | undefined>({
+  schema: Annotation<SchemaResult | undefined>({
     default: () => undefined,
     reducer: (_, next) => next,
   }),
-  geo: Annotation<unknown | undefined>({
+  geo: Annotation<GEOResult | undefined>({
     default: () => undefined,
     reducer: (_, next) => next,
   }),
-  strategy: Annotation<unknown | undefined>({
+  strategy: Annotation<StrategyResult | undefined>({
     default: () => undefined,
     reducer: (_, next) => next,
   }),
