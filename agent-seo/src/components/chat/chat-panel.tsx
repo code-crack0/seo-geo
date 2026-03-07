@@ -1,8 +1,8 @@
 // src/components/chat/chat-panel.tsx
 "use client";
 import { useChat } from "ai/react";
-import { Send, Loader2, MessageSquareOff } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Send, Loader2, MessageSquareOff, Search, FileText, AlertTriangle, BarChart2 } from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { useAuditStore } from "@/stores/audit-store";
 
@@ -64,15 +64,34 @@ function useEmbedStatus(auditId: string, auditDone: boolean) {
   return ready;
 }
 
+const TOOL_LABELS: Record<string, { label: string; Icon: React.ElementType }> = {
+  search_audit_data:    { label: "Searching audit data",    Icon: Search },
+  get_page_details:     { label: "Fetching page details",   Icon: FileText },
+  get_technical_issues: { label: "Loading technical issues", Icon: AlertTriangle },
+  get_score_summary:    { label: "Getting score summary",   Icon: BarChart2 },
+};
+
+type ToolCallEvent = { type: "tool_call"; tool: string; status: "running" | "done" };
+
 export function ChatPanel({ auditId }: { auditId: string }) {
   const status = useAuditStore(s => s.status);
   const auditDone = status === "completed" || status === "failed";
   const embedReady = useEmbedStatus(auditId, auditDone);
 
-  const { messages, input, handleInputChange, handleSubmit, isLoading, append } = useChat({
+  const { messages, input, handleInputChange, handleSubmit, isLoading, append, data } = useChat({
     api: "/api/chat",
     body: { auditId },
   });
+
+  // Track which tools are currently running (from 2:[...] data stream events)
+  const activeTools = (data ?? [])
+    .filter((d): d is ToolCallEvent =>
+      typeof d === "object" && d !== null && (d as ToolCallEvent).type === "tool_call"
+    )
+    .reduce<Record<string, "running" | "done">>((acc, ev) => {
+      acc[ev.tool] = ev.status;
+      return acc;
+    }, {});
 
   const messagesRef = useRef<HTMLDivElement>(null);
   // Track whether the user has scrolled up — if so, don't force-scroll on new tokens
@@ -168,13 +187,31 @@ export function ChatPanel({ auditId }: { auditId: string }) {
           </div>
         ))}
 
-        {/* Loading indicator */}
+        {/* Tool call indicators + loading dots */}
         {isLoading && (
-          <div role="status" aria-label="Assistant is responding" className="flex gap-1">
-            <span className="sr-only">Loading…</span>
-            <span className="w-2 h-2 rounded-full bg-[var(--accent)] animate-bounce" />
-            <span className="w-2 h-2 rounded-full bg-[var(--accent)] animate-bounce" style={{ animationDelay: "0.1s" }} />
-            <span className="w-2 h-2 rounded-full bg-[var(--accent)] animate-bounce" style={{ animationDelay: "0.2s" }} />
+          <div role="status" aria-label="Assistant is responding" className="space-y-1">
+            {Object.entries(activeTools).map(([tool, toolStatus]) => {
+              const meta = TOOL_LABELS[tool] ?? { label: tool, Icon: Search };
+              return (
+                <div key={tool} className="flex items-center gap-1.5 text-xs text-[var(--text-tertiary)]">
+                  {toolStatus === "running"
+                    ? <Loader2 className="w-3 h-3 animate-spin text-[var(--accent)]" />
+                    : <meta.Icon className="w-3 h-3 text-[var(--text-tertiary)] opacity-50" />
+                  }
+                  <span className={toolStatus === "done" ? "line-through opacity-40" : "text-[var(--accent)]"}>
+                    {meta.label}
+                  </span>
+                </div>
+              );
+            })}
+            {Object.keys(activeTools).length === 0 && (
+              <div className="flex gap-1">
+                <span className="sr-only">Loading…</span>
+                <span className="w-2 h-2 rounded-full bg-[var(--accent)] animate-bounce" />
+                <span className="w-2 h-2 rounded-full bg-[var(--accent)] animate-bounce" style={{ animationDelay: "0.1s" }} />
+                <span className="w-2 h-2 rounded-full bg-[var(--accent)] animate-bounce" style={{ animationDelay: "0.2s" }} />
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -1,95 +1,107 @@
 // app/api/chat/route.ts
-import { streamText, tool, type CoreMessage } from "ai";
-import { z } from "zod";
-import { defaultModel } from "@/lib/ai";
-import { getAuditById, getPageByUrl } from "@/lib/db";
-import { searchChunks } from "@/lib/embeddings";
-import type { AuditState } from "@/lib/types";
+import { createDataStreamResponse, formatDataStreamPart } from "ai";
+import { createReactAgent } from "@langchain/langgraph/prebuilt";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { HumanMessage, AIMessage, SystemMessage } from "@langchain/core/messages";
+import type { BaseMessage } from "@langchain/core/messages";
+import { buildAuditSkills } from "@/lib/skills";
+import { getAuditById } from "@/lib/db";
+
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
+const SYSTEM_PROMPT = `You are an expert SEO consultant analyzing a website audit.
+You have access to the full audit data through your tools. ALWAYS use search_audit_data
+before saying you don't know something — the answer is almost always in the audit results.
+
+When answering:
+- Be specific and actionable (exact URLs, exact scores, exact issues)
+- Prioritize critical issues over minor ones
+- Reference specific data points from the audit
+- For score questions, use get_score_summary first
+- For specific page questions, use get_page_details`;
+
+type IncomingMessage = { role: string; content: string | { type: string; text?: string }[] };
+
+function toLangChainMessages(messages: IncomingMessage[]): BaseMessage[] {
+  return messages.map((m) => {
+    const text =
+      typeof m.content === "string"
+        ? m.content
+        : m.content
+            .filter((p): p is { type: "text"; text: string } => p.type === "text")
+            .map((p) => p.text ?? "")
+            .join(" ");
+    if (m.role === "user") return new HumanMessage(text);
+    if (m.role === "assistant") return new AIMessage(text);
+    return new SystemMessage(text);
+  });
+}
 
 export async function POST(req: Request) {
-  const { messages, auditId } = await req.json() as {
-    messages: CoreMessage[];
+  const { messages, auditId } = (await req.json()) as {
+    messages: IncomingMessage[];
     auditId?: string;
   };
 
-  let systemPrompt = `You are an SEO & GEO expert assistant. Answer questions clearly and actionably.`;
-
-  if (auditId) {
-    const audit = await getAuditById(auditId);
-
-    if (audit) {
-      const overview = [
-        audit.domain ? `Domain: ${audit.domain}` : null,
-        audit.business_type ? `Business type: ${audit.business_type}` : null,
-        audit.overall_score != null ? `Overall score: ${audit.overall_score}` : null,
-        audit.technical_score != null ? `Technical: ${audit.technical_score}` : null,
-        audit.content_score != null ? `Content: ${audit.content_score}` : null,
-        audit.schema_score != null ? `Schema: ${audit.schema_score}` : null,
-        audit.geo_score != null ? `GEO AI Visibility: ${audit.geo_score}` : null,
-      ].filter(Boolean).join(" | ");
-
-      const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
-      const rawContent = lastUserMsg?.content;
-      const query = typeof rawContent === "string"
-        ? rawContent
-        : Array.isArray(rawContent)
-          ? rawContent.filter((p): p is { type: "text"; text: string } => (p as { type: string }).type === "text").map((p) => p.text).join(" ")
-          : "SEO audit summary";
-
-      let contextBlocks = "";
-      try {
-        const chunks = await searchChunks(auditId, query);
-        contextBlocks = chunks.map((c) => `[${c.chunkType}] ${c.content}`).join("\n\n");
-      } catch {
-        if (audit.results) {
-          try {
-            const state = (typeof audit.results === "string"
-              ? JSON.parse(audit.results)
-              : audit.results) as AuditState;
-            contextBlocks = `Quick wins: ${(state.strategy?.quickWins ?? []).join("; ")}`;
-          } catch { /* leave empty */ }
-        }
-      }
-
-      systemPrompt = `You are an SEO & GEO expert assistant. Answer questions about this audit specifically.
-
-AUDIT OVERVIEW: ${overview}
-
-RELEVANT AUDIT DATA:
-${contextBlocks}
-
-Instructions: Be specific and reference actual findings from the data above. When asked about a specific page, use the getPageDetails tool.`;
-    }
+  if (!auditId) {
+    return Response.json({ error: "auditId is required" }, { status: 400 });
   }
 
-  const result = streamText({
-    model: defaultModel,
-    system: systemPrompt,
-    messages,
-    tools: auditId ? {
-      getPageDetails: tool({
-        description: "Get detailed HTML metadata for a specific page URL from the audit",
-        parameters: z.object({ url: z.string().describe("The full page URL to inspect") }),
-        execute: async ({ url }) => {
-          const page = await getPageByUrl(auditId, url);
-          if (!page) return { error: "Page not found in audit data" };
-          if (!page.html) return { url: page.url, error: "Page HTML not available", hasScreenshot: Boolean(page.screenshot) };
-          const titleMatch = page.html?.match(/<title[^>]*>([^<]{1,120})<\/title>/i);
-          const descMatch = page.html?.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']{1,200})["']/i);
-          const h1Match = page.html?.match(/<h1[^>]*>([^<]{1,120})<\/h1>/i);
-          return {
-            url: page.url,
-            title: titleMatch?.[1]?.trim() ?? null,
-            metaDescription: descMatch?.[1]?.trim() ?? null,
-            h1: h1Match?.[1]?.trim() ?? null,
-            hasScreenshot: Boolean(page.screenshot),
-            wordCount: (page.html?.match(/\b\w+\b/g) ?? []).length,
-          };
-        },
-      }),
-    } : undefined,
-    maxSteps: 3,
+  const audit = await getAuditById(auditId);
+  if (!audit) {
+    return Response.json({ error: "Audit not found" }, { status: 404 });
+  }
+
+  const model = new ChatGoogleGenerativeAI({
+    model: "gemini-2.5-pro",
+    apiKey: process.env.GEMINI_API_KEY!,
+    streaming: true,
   });
 
-  return result.toDataStreamResponse();
+  const skills = buildAuditSkills(auditId);
+
+  const agent = createReactAgent({
+    llm: model,
+    tools: skills,
+    stateModifier: SYSTEM_PROMPT,
+  });
+
+  const lcMessages = toLangChainMessages(messages);
+
+  return createDataStreamResponse({
+    execute: async (dataStream) => {
+      const eventStream = agent.streamEvents(
+        { messages: lcMessages },
+        { version: "v2", recursionLimit: 10 }
+      );
+
+      for await (const event of eventStream) {
+        // Notify UI when a skill tool starts
+        if (event.event === "on_tool_start") {
+          dataStream.writeData({ type: "tool_call", tool: event.name as string, status: "running" });
+        }
+
+        // Notify UI when a skill tool finishes
+        if (event.event === "on_tool_end") {
+          dataStream.writeData({ type: "tool_call", tool: event.name as string, status: "done" });
+        }
+
+        // Stream text tokens from the LLM as they arrive
+        if (event.event === "on_chat_model_stream") {
+          const chunk = event.data?.chunk;
+          const content = chunk?.content;
+          if (typeof content === "string" && content) {
+            dataStream.write(formatDataStreamPart("text", content));
+          } else if (Array.isArray(content)) {
+            for (const part of content) {
+              if (part.type === "text" && typeof part.text === "string" && part.text) {
+                dataStream.write(formatDataStreamPart("text", part.text));
+              }
+            }
+          }
+        }
+      }
+    },
+  });
 }
