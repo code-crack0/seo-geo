@@ -22,7 +22,6 @@ import {
   geoNode,
   synthesizeNode,
   saveNode,
-  handleErrorNode,
 } from "./nodes";
 
 // ── Conditional router ─────────────────────────────────────────────────────────
@@ -47,11 +46,13 @@ function crawlRouter(
   }
 
   // Fan out to all four parallel analysis agents, each receiving the full state
+  // Note: node names are prefixed with "run_" to avoid collision with state
+  // attribute names (technical/content/schema/geo) which LangGraph 1.x disallows.
   return [
-    new Send("technical", state),
-    new Send("content", state),
-    new Send("schema", state),
-    new Send("geo", state),
+    new Send("run_technical", state),
+    new Send("run_content", state),
+    new Send("run_schema", state),
+    new Send("run_geo", state),
   ];
 }
 
@@ -61,14 +62,12 @@ const graph = new StateGraph(AuditGraphState)
   // Register nodes
   .addNode("initBrowser", initBrowserNode)
   .addNode("crawl", crawlNode)
-  .addNode("technical", technicalNode)
-  .addNode("content", contentNode)
-  .addNode("schema", schemaNode)
-  .addNode("geo", geoNode)
+  .addNode("run_technical", technicalNode)
+  .addNode("run_content", contentNode)
+  .addNode("run_schema", schemaNode)
+  .addNode("run_geo", geoNode)
   .addNode("synthesize", synthesizeNode)
   .addNode("save", saveNode)
-  .addNode("handleError", handleErrorNode)
-
   // Entry edge
   .addEdge(START, "initBrowser")
   .addEdge("initBrowser", "crawl")
@@ -76,29 +75,21 @@ const graph = new StateGraph(AuditGraphState)
   // Conditional fan-out after crawl
   .addConditionalEdges("crawl", crawlRouter, {
     synthesize: "synthesize",
-    technical: "technical",
-    content: "content",
-    schema: "schema",
-    geo: "geo",
+    run_technical: "run_technical",
+    run_content: "run_content",
+    run_schema: "run_schema",
+    run_geo: "run_geo",
   })
 
   // All four parallel agents converge at synthesize
-  .addEdge("technical", "synthesize")
-  .addEdge("content", "synthesize")
-  .addEdge("schema", "synthesize")
-  .addEdge("geo", "synthesize")
+  .addEdge("run_technical", "synthesize")
+  .addEdge("run_content", "synthesize")
+  .addEdge("run_schema", "synthesize")
+  .addEdge("run_geo", "synthesize")
 
   // Sequential tail
   .addEdge("synthesize", "save")
-  .addEdge("save", END)
-
-  /**
-   * handleErrorNode is a terminal sink wired to END. It is not automatically
-   * routed to by LangGraph — future conditional edges can route to 'handleError'
-   * for explicit error handling paths.
-   */
-  // Standalone error sink
-  .addEdge("handleError", END);
+  .addEdge("save", END);
 
 // ── Compile with MemorySaver checkpointer ─────────────────────────────────────
 
