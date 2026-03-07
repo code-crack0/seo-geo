@@ -17,7 +17,7 @@ test.describe("API: GET /api/history", () => {
       expect(item).toHaveProperty("id");
       expect(item).toHaveProperty("domain");
       expect(item).toHaveProperty("status");
-      expect(item).toHaveProperty("createdAt");
+      expect(item).toHaveProperty("created_at");
     }
   });
 
