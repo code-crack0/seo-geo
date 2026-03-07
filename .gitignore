@@ -55,3 +55,4 @@ PLAN.md
 # E2E test reports (generated artifacts)
 agent-seo/tests/e2e/report/
 agent-seo/tests/e2e/results.json
+.worktrees/
