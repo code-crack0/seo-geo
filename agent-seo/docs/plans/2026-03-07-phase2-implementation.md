@@ -4,9 +4,9 @@
 
 **Goal:** Upgrade the chat panel from simple RAG into a full agentic system where the user can ask the AI to analyze any URL using the exact same Claude SEO skills (`/seo-audit`, `/seo-geo`, etc.) as tools, with progressive streaming UI.
 
-**Architecture:** `streamText` (Vercel AI SDK) with 10 tools — 4 existing audit RAG tools + 6 new SEO skill tools. Each SEO tool reads its corresponding `.md` skill file verbatim as the Gemini system prompt, fetches the target URL via Playwright HTTP, and streams the report back. Tool progress steps are emitted as custom data stream events and rendered in the chat UI.
+**Architecture:** LangGraph `createReactAgent` with `ChatGoogleGenerativeAI` (LangChain) as the chat agent. All 10 tools use `tool()` from `@langchain/core/tools` — the 4 existing audit RAG tools plug in directly (already LangChain tools). The 6 new SEO tools read their `.md` skill file verbatim as the system prompt, fetch the URL via Playwright HTTP, and call Gemini. `MemorySaver` persists conversation history per `auditId`. The HTTP response uses `createDataStreamResponse` (Vercel AI SDK) only as the SSE bridge — LangGraph's `streamEvents()` is mapped to the `0:"token"\n` / `2:[data]\n` format that `useChat` on the frontend already understands.
 
-**Tech Stack:** Vercel AI SDK v4 (`streamText`, `createDataStreamResponse`, `tool`), Gemini 2.5 Pro, `@ai-sdk/google`, existing `html-parser.ts`, Playwright (via Express server), React, Tailwind CSS
+**Tech Stack:** `@langchain/langgraph` (`createReactAgent`, `MemorySaver`), `@langchain/google-genai` (`ChatGoogleGenerativeAI`), `@langchain/core/tools` (`tool`), Vercel AI SDK v4 (`createDataStreamResponse` for HTTP only), Gemini 2.5 Pro, existing `html-parser.ts`, Playwright HTTP client, React, Tailwind CSS
 
 ---
 
@@ -127,28 +127,38 @@ git commit -m "feat(chat): add fetchUrl utility with Playwright HTTP + fetch fal
 
 Each tool follows the same pattern: read the `.md` skill file → fetch the URL → call Gemini with the skill as system prompt → return the report. The `onProgress` callback lets the chat route emit step events before the LLM call.
 
+Each SEO tool is a **LangChain tool** (`tool()` from `@langchain/core/tools`) that closes over a `dataStream` reference for emitting progress events. The tool runner function stays separate so it can be called with or without a stream.
+
 **Step 1: Create `src/lib/skills/seo-geo.ts`**
 
 ```typescript
 // src/lib/skills/seo-geo.ts
+import { tool } from "@langchain/core/tools";
+import { z } from "zod";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { generateText } from "ai";
-import { google } from "@ai-sdk/google";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { fetchUrl } from "./fetch-url";
 import { extractContentSummary } from "@/lib/html-parser";
+import type { DataStreamWriter } from "ai";
 
 const SKILL_PROMPT = readFileSync(
   join(process.cwd(), "src/lib/skills/seo/seo-geo.md"),
   "utf-8"
 );
 
-export interface SeoToolOptions {
-  onProgress?: (step: string) => void;
-}
+const llm = new ChatGoogleGenerativeAI({
+  model: "gemini-2.5-pro-preview-05-06",
+  maxOutputTokens: 8000,
+});
 
-export async function runSeoGeoTool(url: string, opts: SeoToolOptions = {}): Promise<string> {
-  opts.onProgress?.(`Fetching ${url}…`);
+/** Core runner — can be called standalone or from the LangChain tool */
+export async function runSeoGeoTool(
+  url: string,
+  onProgress?: (msg: string) => void,
+): Promise<string> {
+  onProgress?.(`Fetching ${url}…`);
   const { html, status } = await fetchUrl(url);
 
   if (status >= 400) {
@@ -165,32 +175,58 @@ export async function runSeoGeoTool(url: string, opts: SeoToolOptions = {}): Pro
     `Text snippet:\n${extracted.textSnippet ?? ""}`,
   ].join("\n");
 
-  opts.onProgress?.("Running GEO / AI visibility analysis…");
+  onProgress?.("Running GEO / AI visibility analysis…");
 
-  const { text } = await generateText({
-    model: google("gemini-2.5-pro-preview-05-06"),
-    system: SKILL_PROMPT,
-    prompt: `Analyze this page for GEO / AI search visibility:\n\n${pageContext}\n\nFull HTML (first 40000 chars):\n${html.slice(0, 40_000)}`,
-    maxTokens: 8000,
-  });
+  const response = await llm.invoke([
+    new SystemMessage(SKILL_PROMPT),
+    new HumanMessage(
+      `Analyze this page for GEO / AI search visibility:\n\n${pageContext}\n\nFull HTML (first 40000 chars):\n${html.slice(0, 40_000)}`
+    ),
+  ]);
 
-  return text;
+  return typeof response.content === "string"
+    ? response.content
+    : JSON.stringify(response.content);
+}
+
+/** LangChain tool factory — closes over dataStream for progress events */
+export function makeSeoGeoTool(dataStream: DataStreamWriter) {
+  return tool(
+    async ({ url }: { url: string }) => {
+      dataStream.writeData({ type: "tool_start", tool: "seo_geo", url });
+      try {
+        const report = await runSeoGeoTool(url, (msg) =>
+          dataStream.writeData({ type: "tool_step", message: msg })
+        );
+        dataStream.writeData({ type: "tool_complete", tool: "seo_geo" });
+        return report;
+      } catch (err) {
+        return `GEO analysis failed: ${String(err)}`;
+      }
+    },
+    {
+      name: "seo_geo",
+      description:
+        "Analyze a URL for GEO / AI search visibility — citability score, structural readability, brand signals, AI crawler access, llms.txt. Use when asked about AI Overviews, ChatGPT, Perplexity, or GEO optimization for a specific URL.",
+      schema: z.object({ url: z.string().url().describe("The URL to analyze") }),
+    }
+  );
 }
 ```
 
 **Step 2: Create the remaining 5 tools using the same pattern**
 
-`src/lib/skills/seo-audit.ts` — change skill file to `seo-audit.md`, progress message to `"Running full SEO audit…"`, function name to `runSeoAuditTool`.
+`src/lib/skills/seo-audit.ts` — skill `seo-audit.md`, progress `"Running full SEO audit…"`, tool name `"seo_audit"`, description mentions full site crawl + multi-agent analysis.
 
-`src/lib/skills/seo-page.ts` — skill file `seo-page.md`, progress `"Running single-page SEO analysis…"`, function `runSeoPageTool`.
+`src/lib/skills/seo-page.ts` — skill `seo-page.md`, progress `"Running single-page SEO analysis…"`, tool name `"seo_page"`.
 
-`src/lib/skills/seo-technical.ts` — skill file `seo-technical.md`, progress `"Running technical SEO checks…"`, function `runSeoTechnicalTool`.
+`src/lib/skills/seo-technical.ts` — skill `seo-technical.md`, progress `"Running technical SEO checks…"`, tool name `"seo_technical"`.
 
-`src/lib/skills/seo-content.ts` — skill file `seo-content.md`, progress `"Analyzing content quality & E-E-A-T…"`, function `runSeoContentTool`.
+`src/lib/skills/seo-content.ts` — skill `seo-content.md`, progress `"Analyzing content quality & E-E-A-T…"`, tool name `"seo_content"`.
 
-`src/lib/skills/seo-schema.ts` — skill file `seo-schema.md`, progress `"Analyzing structured data & schema…"`, function `runSeoSchemaTool`.
+`src/lib/skills/seo-schema.ts` — skill `seo-schema.md`, progress `"Analyzing structured data & schema…"`, tool name `"seo_schema"`.
 
-> Copy `seo-geo.ts` for each, replacing the 3 values above (skill file name, progress message, function name). Keep all other code identical.
+> Copy `seo-geo.ts` for each, replacing: skill filename, `onProgress` message, tool `name`, tool `description`, function names (`runSeoXxxTool` / `makeSeoXxxTool`). All other code identical.
 
 **Step 3: Verify TypeScript compiles**
 
@@ -229,7 +265,7 @@ export function buildAuditSkills(auditId: string) {
 }
 ```
 
-**Step 2: Add SEO skill exports**
+**Step 2: Add SEO skill exports and `buildAllChatTools` factory**
 
 Replace the entire file with:
 
@@ -238,20 +274,28 @@ import { searchAuditSkill } from "./search-audit";
 import { getPageDetailsSkill } from "./get-page-details";
 import { getTechnicalIssuesSkill } from "./get-technical-issues";
 import { getScoreSummarySkill } from "./get-score-summary";
-
-import { runSeoAuditTool } from "./seo-audit";
-import { runSeoGeoTool } from "./seo-geo";
-import { runSeoPageTool } from "./seo-page";
-import { runSeoTechnicalTool } from "./seo-technical";
-import { runSeoContentTool } from "./seo-content";
-import { runSeoSchemaTool } from "./seo-schema";
+import { makeSeoAuditTool } from "./seo-audit";
+import { makeSeoGeoTool } from "./seo-geo";
+import { makeSeoPageTool } from "./seo-page";
+import { makeSeoTechnicalTool } from "./seo-technical";
+import { makeSeoContentTool } from "./seo-content";
+import { makeSeoSchemaTool } from "./seo-schema";
+import type { DataStreamWriter } from "ai";
 
 export {
-  searchAuditSkill, getPageDetailsSkill, getTechnicalIssuesSkill, getScoreSummarySkill,
-  runSeoAuditTool, runSeoGeoTool, runSeoPageTool, runSeoTechnicalTool, runSeoContentTool, runSeoSchemaTool,
+  searchAuditSkill,
+  getPageDetailsSkill,
+  getTechnicalIssuesSkill,
+  getScoreSummarySkill,
+  makeSeoAuditTool,
+  makeSeoGeoTool,
+  makeSeoPageTool,
+  makeSeoTechnicalTool,
+  makeSeoContentTool,
+  makeSeoSchemaTool,
 };
 
-/** LangChain tools for the current audit session (RAG-based) */
+/** LangChain RAG tools for the current audit session */
 export function buildAuditSkills(auditId: string) {
   return [
     searchAuditSkill(auditId),
@@ -261,15 +305,21 @@ export function buildAuditSkills(auditId: string) {
   ];
 }
 
-/** SEO skill runner functions — used as Vercel AI SDK tools in the chat route */
-export {
-  runSeoAuditTool as seoAudit,
-  runSeoGeoTool as seoGeo,
-  runSeoPageTool as seoPage,
-  runSeoTechnicalTool as seoTechnical,
-  runSeoContentTool as seoContent,
-  runSeoSchemaTool as seoSchema,
-};
+/**
+ * All 10 chat tools: 4 audit RAG tools + 6 SEO skill tools.
+ * Pass dataStream so SEO tools can emit progress events.
+ */
+export function buildAllChatTools(auditId: string, dataStream: DataStreamWriter) {
+  return [
+    ...buildAuditSkills(auditId),
+    makeSeoAuditTool(dataStream),
+    makeSeoGeoTool(dataStream),
+    makeSeoPageTool(dataStream),
+    makeSeoTechnicalTool(dataStream),
+    makeSeoContentTool(dataStream),
+    makeSeoSchemaTool(dataStream),
+  ];
+}
 ```
 
 **Step 3: Verify TypeScript compiles**
@@ -287,12 +337,12 @@ git commit -m "feat(chat): export buildSeoSkills and SEO tool runners from skill
 
 ---
 
-## Task 5: Upgrade `app/api/chat/route.ts` — 10 Tools + Tool Step Streaming
+## Task 5: Upgrade `app/api/chat/route.ts` — LangGraph ReAct Agent
 
 **Files:**
 - Modify: `app/api/chat/route.ts`
 
-This is the core upgrade. Replace the single `streamText` call with `createDataStreamResponse` so we can write custom `tool_step` events before tool execution, then merge the `streamText` output into the same stream.
+Replace `streamText` with a LangGraph `createReactAgent`. The agent uses all 10 LangChain tools and `MemorySaver` for conversation persistence. Streaming bridges LangGraph's `streamEvents()` to the Vercel AI SDK data stream format so `useChat` on the frontend keeps working unchanged.
 
 **Step 1: Read the current file** (already done above — 95 lines)
 
@@ -300,26 +350,30 @@ This is the core upgrade. Replace the single `streamText` call with `createDataS
 
 ```typescript
 // app/api/chat/route.ts
-import { createDataStreamResponse, streamText, tool, type CoreMessage } from "ai";
-import { z } from "zod";
-import { google } from "@ai-sdk/google";
+import { createDataStreamResponse } from "ai";
+import { createReactAgent } from "@langchain/langgraph/prebuilt";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { MemorySaver } from "@langchain/langgraph";
+import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { getAuditById } from "@/lib/db";
 import { searchChunks } from "@/lib/embeddings";
+import { buildAllChatTools } from "@/lib/skills";
 import type { AuditState } from "@/lib/types";
-import {
-  runSeoAuditTool,
-  runSeoGeoTool,
-  runSeoPageTool,
-  runSeoTechnicalTool,
-  runSeoContentTool,
-  runSeoSchemaTool,
-} from "@/lib/skills";
 
-const MODEL = google("gemini-2.5-pro-preview-05-06");
+const llm = new ChatGoogleGenerativeAI({
+  model: "gemini-2.5-pro-preview-05-06",
+  streaming: true,
+});
 
-function buildSystemPrompt(audit: Awaited<ReturnType<typeof getAuditById>>, contextBlocks: string): string {
+// Shared in-memory checkpointer — persists conversation per auditId across messages
+const checkpointer = new MemorySaver();
+
+function buildSystemPrompt(
+  audit: Awaited<ReturnType<typeof getAuditById>>,
+  contextBlocks: string
+): string {
   if (!audit) {
-    return `You are an expert SEO & GEO assistant. You can analyze any URL using your SEO tools. When a user provides a URL, use the appropriate SEO tool to analyze it.`;
+    return `You are an expert SEO & GEO assistant. You can analyze any URL using your built-in SEO tools (seo_audit, seo_geo, seo_page, seo_technical, seo_content, seo_schema). When a user provides a URL, call the appropriate tool to analyze it.`;
   }
 
   const overview = [
@@ -339,40 +393,36 @@ AUDIT OVERVIEW: ${overview}
 RELEVANT AUDIT DATA:
 ${contextBlocks}
 
-You have two types of tools:
-1. Audit data tools — search this audit's results, get page details, scores, issues
-2. SEO analysis tools — analyze any URL fresh using the full Claude SEO skill (seo_audit, seo_geo, seo_page, seo_technical, seo_content, seo_schema)
+You have two categories of tools:
+1. Audit data tools (search_audit_data, get_page_details, get_technical_issues, get_score_summary) — query THIS audit's stored results
+2. SEO analysis tools (seo_audit, seo_geo, seo_page, seo_technical, seo_content, seo_schema) — fetch and analyze ANY URL fresh using the full SEO skill
 
-When the user asks to analyze a specific URL, use the appropriate SEO tool. When asking about this audit's results, use the audit data tools first.`;
+When the user asks about this audit's results, use category 1 tools first. When the user asks to analyze a specific URL or compare pages, use category 2 tools.`;
 }
 
 export async function POST(req: Request) {
-  const { messages, auditId } = await req.json() as {
-    messages: CoreMessage[];
+  const { messages, auditId } = (await req.json()) as {
+    messages: { role: string; content: string }[];
     auditId?: string;
   };
 
-  // Build context from audit data
+  // Retrieve audit context for the system prompt
   let audit = null;
   let contextBlocks = "";
 
   if (auditId) {
     audit = await getAuditById(auditId);
-    const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
-    const rawContent = lastUserMsg?.content;
-    const query = typeof rawContent === "string"
-      ? rawContent
-      : Array.isArray(rawContent)
-        ? rawContent.filter((p): p is { type: "text"; text: string } => (p as { type: string }).type === "text").map((p) => p.text).join(" ")
-        : "SEO audit summary";
+    const lastUserContent = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
 
     try {
-      const chunks = await searchChunks(auditId, query);
+      const chunks = await searchChunks(auditId, lastUserContent);
       contextBlocks = chunks.map((c) => `[${c.chunkType}] ${c.content}`).join("\n\n");
     } catch {
       if (audit?.results) {
         try {
-          const state = (typeof audit.results === "string" ? JSON.parse(audit.results) : audit.results) as AuditState;
+          const state = (typeof audit.results === "string"
+            ? JSON.parse(audit.results)
+            : audit.results) as AuditState;
           contextBlocks = `Quick wins: ${(state.strategy?.quickWins ?? []).join("; ")}`;
         } catch { /* leave empty */ }
       }
@@ -380,151 +430,82 @@ export async function POST(req: Request) {
   }
 
   const systemPrompt = buildSystemPrompt(audit, contextBlocks);
+  const lastUserMessage = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
+  const threadId = auditId ?? `anon-${Date.now()}`;
 
   return createDataStreamResponse({
     execute: async (dataStream) => {
-      const result = streamText({
-        model: MODEL,
-        system: systemPrompt,
-        messages,
-        maxSteps: 10,
-        tools: {
-          // ── SEO skill tools ───────────────────────────────────────────────
-          seo_audit: tool({
-            description: "Run a full SEO audit on any URL. Crawls the page and returns a comprehensive SEO report covering technical, content, schema, and performance. Use when the user asks to 'audit' a site or URL.",
-            parameters: z.object({ url: z.string().url().describe("The URL to audit") }),
-            execute: async ({ url }) => {
-              dataStream.writeData({ type: "tool_start", tool: "seo_audit", url });
-              dataStream.writeData({ type: "tool_step", message: `Fetching ${url}…` });
-              try {
-                const report = await runSeoAuditTool(url, {
-                  onProgress: (msg) => dataStream.writeData({ type: "tool_step", message: msg }),
-                });
-                dataStream.writeData({ type: "tool_complete", tool: "seo_audit" });
-                return report;
-              } catch (err) {
-                return `SEO audit failed: ${String(err)}`;
-              }
-            },
-          }),
+      // Build all 10 tools — SEO tools close over dataStream for progress events
+      const tools = buildAllChatTools(auditId ?? "", dataStream);
 
-          seo_geo: tool({
-            description: "Analyze a URL for GEO / AI search visibility — citability score, structural readability, brand signals, AI crawler access, llms.txt. Use when asked about AI Overviews, ChatGPT, Perplexity, or GEO optimization for a specific URL.",
-            parameters: z.object({ url: z.string().url().describe("The URL to analyze") }),
-            execute: async ({ url }) => {
-              dataStream.writeData({ type: "tool_start", tool: "seo_geo", url });
-              dataStream.writeData({ type: "tool_step", message: `Fetching ${url}…` });
-              try {
-                const report = await runSeoGeoTool(url, {
-                  onProgress: (msg) => dataStream.writeData({ type: "tool_step", message: msg }),
-                });
-                dataStream.writeData({ type: "tool_complete", tool: "seo_geo" });
-                return report;
-              } catch (err) {
-                return `GEO analysis failed: ${String(err)}`;
-              }
-            },
-          }),
-
-          seo_page: tool({
-            description: "Deep single-page SEO analysis: title, meta, headings, content quality, internal links, on-page optimization. Use when asked to analyze a specific page in detail.",
-            parameters: z.object({ url: z.string().url().describe("The page URL to analyze") }),
-            execute: async ({ url }) => {
-              dataStream.writeData({ type: "tool_start", tool: "seo_page", url });
-              dataStream.writeData({ type: "tool_step", message: `Fetching ${url}…` });
-              try {
-                const report = await runSeoPageTool(url, {
-                  onProgress: (msg) => dataStream.writeData({ type: "tool_step", message: msg }),
-                });
-                dataStream.writeData({ type: "tool_complete", tool: "seo_page" });
-                return report;
-              } catch (err) {
-                return `Page analysis failed: ${String(err)}`;
-              }
-            },
-          }),
-
-          seo_technical: tool({
-            description: "Technical SEO check: robots.txt, sitemaps, canonicals, redirects, Core Web Vitals, HTTPS, security headers. Use when asked about technical issues on a specific URL.",
-            parameters: z.object({ url: z.string().url().describe("The URL to check") }),
-            execute: async ({ url }) => {
-              dataStream.writeData({ type: "tool_start", tool: "seo_technical", url });
-              dataStream.writeData({ type: "tool_step", message: `Fetching ${url}…` });
-              try {
-                const report = await runSeoTechnicalTool(url, {
-                  onProgress: (msg) => dataStream.writeData({ type: "tool_step", message: msg }),
-                });
-                dataStream.writeData({ type: "tool_complete", tool: "seo_technical" });
-                return report;
-              } catch (err) {
-                return `Technical analysis failed: ${String(err)}`;
-              }
-            },
-          }),
-
-          seo_content: tool({
-            description: "Analyze content quality: E-E-A-T signals, readability, thin content, duplicate content, AI citation readiness. Use when asked about content quality or E-E-A-T for a specific URL.",
-            parameters: z.object({ url: z.string().url().describe("The URL to analyze") }),
-            execute: async ({ url }) => {
-              dataStream.writeData({ type: "tool_start", tool: "seo_content", url });
-              dataStream.writeData({ type: "tool_step", message: `Fetching ${url}…` });
-              try {
-                const report = await runSeoContentTool(url, {
-                  onProgress: (msg) => dataStream.writeData({ type: "tool_step", message: msg }),
-                });
-                dataStream.writeData({ type: "tool_complete", tool: "seo_content" });
-                return report;
-              } catch (err) {
-                return `Content analysis failed: ${String(err)}`;
-              }
-            },
-          }),
-
-          seo_schema: tool({
-            description: "Detect and analyze structured data / schema markup: JSON-LD, microdata, validation errors, missing schema opportunities. Use when asked about schema or structured data on a URL.",
-            parameters: z.object({ url: z.string().url().describe("The URL to analyze") }),
-            execute: async ({ url }) => {
-              dataStream.writeData({ type: "tool_start", tool: "seo_schema", url });
-              dataStream.writeData({ type: "tool_step", message: `Fetching ${url}…` });
-              try {
-                const report = await runSeoSchemaTool(url, {
-                  onProgress: (msg) => dataStream.writeData({ type: "tool_step", message: msg }),
-                });
-                dataStream.writeData({ type: "tool_complete", tool: "seo_schema" });
-                return report;
-              } catch (err) {
-                return `Schema analysis failed: ${String(err)}`;
-              }
-            },
-          }),
-
-          // ── Audit RAG tools (existing, only when auditId present) ─────────
-          ...(auditId ? {
-            search_audit_data: tool({
-              description: "Search the current audit's embedded results for specific findings, scores, issues, or recommendations.",
-              parameters: z.object({ query: z.string().describe("What to search for in the audit data") }),
-              execute: async ({ query }) => {
-                try {
-                  const chunks = await searchChunks(auditId, query, 8);
-                  if (chunks.length === 0) return "No relevant audit data found for that query.";
-                  return chunks.map((c) => `[${c.chunkType}] ${c.content}`).join("\n\n---\n\n");
-                } catch {
-                  return "Could not search audit data — embeddings may not be ready yet.";
-                }
-              },
-            }),
-          } : {}),
-        },
-        onError: (err) => {
-          console.error("[chat] streamText error:", err);
-        },
+      const agent = createReactAgent({
+        llm,
+        tools,
+        checkpointSaver: checkpointer,
+        stateModifier: new SystemMessage(systemPrompt),
       });
 
-      result.mergeIntoDataStream(dataStream);
+      // streamEvents gives us fine-grained LLM token + tool events
+      const eventStream = agent.streamEvents(
+        { messages: [new HumanMessage(lastUserMessage)] },
+        {
+          version: "v2",
+          configurable: { thread_id: threadId },
+        }
+      );
+
+      // Bridge LangGraph events → Vercel AI SDK data stream format
+      // Text tokens → "0:\"token\"\n" so useChat renders them
+      // Tool data events already written directly by the tool via dataStream.writeData()
+      for await (const event of eventStream) {
+        if (event.event === "on_chat_model_stream") {
+          const chunk = event.data?.chunk;
+          const content = typeof chunk?.content === "string" ? chunk.content : "";
+          if (content) {
+            // Vercel AI SDK text token format
+            dataStream.write(`0:${JSON.stringify(content)}\n`);
+          }
+        }
+      }
+
+      // Write finish signal
+      dataStream.write(
+        `e:${JSON.stringify({ finishReason: "stop", usage: { promptTokens: 0, completionTokens: 0 }, isContinued: false })}\n`
+      );
+      dataStream.write(
+        `d:${JSON.stringify({ finishReason: "stop", usage: { promptTokens: 0, completionTokens: 0 } })}\n`
+      );
     },
-    onError: (err) => String(err),
+    onError: (err) => {
+      console.error("[chat] agent error:", err);
+      return String(err);
+    },
   });
 }
+```
+
+**Step 3: Run TypeScript check**
+
+```bash
+npx tsc --noEmit
+```
+Expected: no errors.
+
+**Step 4: Test the agent manually**
+
+```bash
+curl -X POST http://localhost:3000/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"messages":[{"role":"user","content":"check GEO for https://example.com"}]}' \
+  --no-buffer -s | head -20
+```
+Expected: stream of `0:"..."` lines (text tokens) and `2:[{"type":"tool_start"...}]` data events.
+
+**Step 5: Commit**
+
+```bash
+git add app/api/chat/route.ts
+git commit -m "feat(chat): replace streamText with LangGraph createReactAgent (LangChain full shift)"
 ```
 
 **Step 3: Run TypeScript check**
