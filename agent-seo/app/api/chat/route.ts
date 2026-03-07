@@ -77,6 +77,16 @@ export async function POST(req: Request) {
       );
 
       for await (const event of eventStream) {
+        // Notify UI when a skill tool starts
+        if (event.event === "on_tool_start") {
+          dataStream.writeData({ type: "tool_call", tool: event.name as string, status: "running" });
+        }
+
+        // Notify UI when a skill tool finishes
+        if (event.event === "on_tool_end") {
+          dataStream.writeData({ type: "tool_call", tool: event.name as string, status: "done" });
+        }
+
         // Stream text tokens from the LLM as they arrive
         if (event.event === "on_chat_model_stream") {
           const chunk = event.data?.chunk;
