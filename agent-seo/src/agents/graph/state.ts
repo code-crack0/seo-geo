@@ -13,8 +13,6 @@ import type {
  * Non-serializable runtime values passed via graph config (not stored in state).
  */
 export interface AuditGraphConfig {
-  auditId: string;
-  domain: string;
   dataStream: DataStreamWriter;
 }
 

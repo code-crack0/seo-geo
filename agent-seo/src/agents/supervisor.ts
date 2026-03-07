@@ -2,6 +2,7 @@
 import type { DataStreamWriter } from "ai";
 import { auditGraph } from "./graph";
 import { closeBrowser } from "@/lib/browserbase";
+import { updateAuditFailed } from "@/lib/db";
 
 export async function runSupervisor(domain: string, auditId: string, dataStream: DataStreamWriter): Promise<void> {
   try {
@@ -10,6 +11,7 @@ export async function runSupervisor(domain: string, auditId: string, dataStream:
       { configurable: { dataStream, thread_id: auditId } },
     );
   } catch (error) {
+    await updateAuditFailed(auditId).catch(() => {}); // non-fatal
     try {
       dataStream.writeData({ type: "agent_status", agent: "supervisor", status: "error", message: String(error) });
     } catch { /* stream may be closed */ }

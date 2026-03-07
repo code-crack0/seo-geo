@@ -259,6 +259,7 @@ export const synthesizeNode: Node = async (state, config) => {
       businessType: state.crawler?.businessType ?? "general",
     });
 
+    emit({ type: "partial_result", agent: "strategist", data: strategy });
     emit({ type: "score_update", category: "overall", score: strategy.overallScore });
     emit({ type: "agent_status", agent: "strategist", status: "done" });
     log("info", `Strategist done — overall score: ${strategy.overallScore}`);
@@ -279,6 +280,12 @@ export const saveNode: Node = async (state, config) => {
   const log = getLog(config, state.auditId);
 
   log("info", "Saving audit results to database…");
+
+  // If synthesis failed, don't overwrite the failed status with complete
+  if (state.status === "failed") {
+    emit({ type: "audit_complete", state });
+    return {};
+  }
 
   await updateAuditComplete(state.auditId, {
     overallScore: state.strategy?.overallScore ?? null,
